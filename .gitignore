@@ -1,0 +1,15 @@
+# Carpetas de datos y descargas
+raw/
+output/
+
+# Cache de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Documentos y catálogos (no requeridos para ejecutar el código)
+*.pdf
+*.xlsx
+
+# Listado de nodos (no requerido por el script de descarga)
+nodos_sin.txt
