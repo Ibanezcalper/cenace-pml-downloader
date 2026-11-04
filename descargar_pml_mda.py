@@ -454,23 +454,50 @@ class CenacePmlDownloader:
 
         fields = self._get_inicial()
 
-        # 1) Periodicidad
-        resp = self._post(
-            fields,
-            {
-                "__EVENTTARGET": "ctl00$ContentPlaceHolder1$ddlPeriodicidad",
-                "ctl00$ContentPlaceHolder1$ddlReporte": REPORTE_PML,
-                "ctl00$ContentPlaceHolder1$ddlPeriodicidad": periodicidad,
-                "ctl00$ContentPlaceHolder1$ddlSistema": self.sistema,
-            },
-        )
-        if resp.status_code >= 400:
-            raise CenaceError(f"HTTP {resp.status_code} al cambiar periodicidad")
-        if self._is_zip(resp):
-            raise CenaceError("Respuesta ZIP inesperada al cambiar periodicidad")
-        fields = extract_fields(resp.text)
+        # 1) Periodicidad (cambiar periodicidad en ASP.NET recarga ddlSistema y lo deja en SIN)
+        if fields.get("ctl00$ContentPlaceHolder1$ddlPeriodicidad") != periodicidad:
+            resp = self._post(
+                fields,
+                {
+                    "__EVENTTARGET": "ctl00$ContentPlaceHolder1$ddlPeriodicidad",
+                    "ctl00$ContentPlaceHolder1$ddlReporte": REPORTE_PML,
+                    "ctl00$ContentPlaceHolder1$ddlPeriodicidad": periodicidad,
+                    "ctl00$ContentPlaceHolder1$ddlSistema": fields.get(
+                        "ctl00$ContentPlaceHolder1$ddlSistema", "SIN"
+                    ),
+                },
+            )
+            if resp.status_code >= 400:
+                raise CenaceError(f"HTTP {resp.status_code} al cambiar periodicidad")
+            if self._is_zip(resp):
+                raise CenaceError("Respuesta ZIP inesperada al cambiar periodicidad")
+            fields = extract_fields(resp.text)
 
-        # 2) Fijar periodo
+        # 2) Sistema (debe enviarse en su propio postback antes de fijar txtPeriodo,
+        #    pues el evento de cambio de ddlSistema resetea txtPeriodo al último mes)
+        if fields.get("ctl00$ContentPlaceHolder1$ddlSistema") != self.sistema:
+            resp = self._post(
+                fields,
+                {
+                    "__EVENTTARGET": "ctl00$ContentPlaceHolder1$ddlSistema",
+                    "ctl00$ContentPlaceHolder1$ddlReporte": REPORTE_PML,
+                    "ctl00$ContentPlaceHolder1$ddlPeriodicidad": periodicidad,
+                    "ctl00$ContentPlaceHolder1$ddlSistema": self.sistema,
+                },
+            )
+            if resp.status_code >= 400:
+                raise CenaceError(f"HTTP {resp.status_code} al cambiar sistema")
+            if self._is_zip(resp):
+                raise CenaceError("Respuesta ZIP inesperada al cambiar sistema")
+            fields = extract_fields(resp.text)
+            sistema_ok = fields.get("ctl00$ContentPlaceHolder1$ddlSistema", "")
+            if sistema_ok != self.sistema:
+                raise CenaceError(
+                    f"No se pudo fijar el sistema {self.sistema}; "
+                    f"el formulario quedó en {sistema_ok!r}."
+                )
+
+        # 3) Fijar periodo
         if periodicidad == "M":
             extra_periodo = {
                 "ctl00$ContentPlaceHolder1$hdfStartDateSelected": fecha,
@@ -1005,6 +1032,13 @@ def nombre_csv(sistema: str, inicio: date, fin: date) -> str:
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
     ap = construir_parser()
     args = ap.parse_args()
 
